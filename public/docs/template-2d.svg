@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048" width="2048" height="2048">
+  <rect width="2048" height="2048" fill="#18181c"/>
+  <path d="M0 0 L2048 0 L1536 512 L512 512 Z" fill="#242834"/>
+  <path d="M0 2048 L2048 2048 L1536 1536 L512 1536 Z" fill="#282420"/>
+  <path d="M0 0 L512 512 L512 1536 L0 2048 Z" fill="#22262c"/>
+  <path d="M2048 0 L1536 512 L1536 1536 L2048 2048 Z" fill="#22262c"/>
+  <rect x="512" y="512" width="1024" height="1024" fill="#2a303a"/>
+  <g stroke="#303038" stroke-width="2" fill="none">
+    <line x1="512" y1="0" x2="512" y2="2048"/>
+    <line x1="1024" y1="0" x2="1024" y2="2048"/>
+    <line x1="1536" y1="0" x2="1536" y2="2048"/>
+    <line x1="0" y1="512" x2="2048" y2="512"/>
+    <line x1="0" y1="1024" x2="2048" y2="1024"/>
+    <line x1="0" y1="1536" x2="2048" y2="1536"/>
+  </g>
+  <g stroke="#58c4dc" stroke-width="8" fill="none">
+    <line x1="512" y1="512" x2="0" y2="0"/>
+    <line x1="1536" y1="512" x2="2048" y2="0"/>
+    <line x1="512" y1="1536" x2="0" y2="2048"/>
+    <line x1="1536" y1="1536" x2="2048" y2="2048"/>
+  </g>
+  <rect x="512" y="512" width="1024" height="1024" fill="none" stroke="#ececf0" stroke-width="10"/>
+  <line x1="1024" y1="0" x2="1024" y2="512" stroke="#e8c448" stroke-width="4"/>
+  <circle cx="1024" cy="143" r="28" fill="none" stroke="#e8c448" stroke-width="8"/>
+  <circle cx="1024" cy="287" r="28" fill="none" stroke="#e8c448" stroke-width="8"/>
+  <circle cx="1024" cy="430" r="28" fill="none" stroke="#e8c448" stroke-width="8"/>
+  <g stroke="#dc5050" stroke-width="6">
+    <line x1="984" y1="1024" x2="1064" y2="1024"/>
+    <line x1="1024" y1="984" x2="1024" y2="1064"/>
+  </g>
+  <g fill="#ececf0" font-family="sans-serif" font-size="56" text-anchor="middle">
+    <text x="1024" y="80">)±Ñ—(
+	</text>
+    <text x="1024" y="1980">0Ñ—(	</text>
+    <text x="1024" y="1060">Ü™ 1024×1024</text>
+    <text x="220" y="1040" transform="rotate(-90 220 1040)">æ™</text>
+    <text x="1828" y="1040" transform="rotate(90 1828 1040)">ó™</text>
+  </g>
+  <g fill="#e8c448" font-family="sans-serif" font-size="36" text-anchor="start">
+    <text x="1070" y="155">o Ñ—</text>
+    <text x="1070" y="300">o -</text>
+    <text x="1070" y="442">o Ü</text>
+  </g>
+  <g fill="#dc5050" font-family="sans-serif" font-size="32" text-anchor="middle">
+    <text x="1024" y="1110">m¹</text>
+  </g>
+</svg>
