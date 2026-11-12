@@ -105,10 +105,10 @@ export default function App() {
 			scene.add( building )
 
 			const fit = ( 0.5 * Math.max( size.x, size.y, size.z ) ) / Math.tan( camera.fov * Math.PI / 360 )
-			const dist = fit * 2.35
+			const dist = fit * 1.42
 			camera.position.set(
-				center.x + dist * 0.62,
-				center.y * 0.35 + dist * 0.16,
+				center.x,
+				center.y + dist * 0.28,
 				center.z + dist * 0.78,
 			)
 			controls = new OrbitControls( camera, renderer.domElement )
