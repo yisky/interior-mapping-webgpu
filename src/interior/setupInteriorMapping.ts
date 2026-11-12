@@ -1,12 +1,6 @@
 import {
 	BufferAttribute,
-	ClampToEdgeWrapping,
-	EquirectangularReflectionMapping,
-	LinearFilter,
 	Mesh,
-	RepeatWrapping,
-	SRGBColorSpace,
-	TextureLoader,
 	Vector3,
 	type BufferGeometry,
 	type Material,
@@ -14,7 +8,6 @@ import {
 	type PointLight,
 	type Texture,
 } from 'three'
-import { HDRLoader } from 'three/addons/loaders/HDRLoader.js'
 import type { SunLight } from 'three/addons/lights/SunLight.js'
 import type { Period } from '../scene/dayNight'
 import { isGlassMesh } from '../scene/glass'
@@ -22,10 +15,13 @@ import { createInteriorMaterial } from './createInteriorMaterial'
 import { attachWindowLight } from './createWindowLight'
 import { setWindowLightsAmount } from './windowLights'
 
-const ENV_URL = '/textures/env/park_parking_2k.hdr'
+export const IM_DIR = {
+	full: '/textures/im',
+	lite: '/textures/im-512',
+} as const
 
 /** 按窗名挂日/夜 PNG。L0/L1/L2 对应文件夹。南面一层中间是门，没有 C。 */
-function mapUrlForGlass( name: string, period: Period ): string | null {
+function mapUrlForGlass( name: string, period: Period, imDir: string = IM_DIR.full ): string | null {
 	const m = /Glass_IM_([NS])_L(\d)_B(\d)/.exec( name )
 	if ( m === null ) return null
 	const floor = m[ 2 ]
@@ -33,7 +29,24 @@ function mapUrlForGlass( name: string, period: Period ): string | null {
 	const slot = m[ 3 ] === '0' ? 'W' : m[ 3 ] === '1' ? 'C' : m[ 3 ] === '2' ? 'E' : null
 	if ( slot === null ) return null
 	if ( m[ 1 ] === 'S' && floor === '0' && slot === 'C' ) return null
-	return `/textures/im/L${ floor }/${ period }-${ m[ 1 ] }-L${ floor }-${ slot }.png?v=dn1`
+	return `${ imDir }/L${ floor }/${ period }-${ m[ 1 ] }-L${ floor }-${ slot }.png?v=dn1`
+}
+
+/** 日夜 × 南北 × 三槽，去掉南门那扇。给加载器按字节预登记。 */
+export function listInteriorMapUrls( imDir: string = IM_DIR.full ): string[] {
+	const urls: string[] = []
+	for ( const floor of [ '0', '1', '2' ] ) {
+		for ( const period of [ 'day', 'night' ] as const ) {
+			for ( const side of [ 'N', 'S' ] as const ) {
+				for ( const slot of [ 'W', 'C', 'E' ] as const ) {
+					const b = slot === 'W' ? '0' : slot === 'C' ? '1' : '2'
+					const url = mapUrlForGlass( `Glass_IM_${ side }_L${ floor }_B${ b }`, period, imDir )
+					if ( url !== null ) urls.push( url )
+				}
+			}
+		}
+	}
+	return urls
 }
 
 export interface InteriorMappingHandle {
@@ -54,13 +67,24 @@ interface GlassBinding {
 	light: PointLight | null
 }
 
+function disposePack( env: Texture, maps: Map<string, Texture> ) {
+	for ( const tex of maps.values() ) tex.dispose()
+	env.dispose()
+}
+
 /**
- * 按玻璃网格名挂图。L0/L1/L2 日夜 PNG。
+ * 按玻璃网格名挂已加载的日/夜 PNG。
  */
-export async function setupInteriorMapping( root: Object3D, sun?: SunLight | null ): Promise<InteriorMappingHandle> {
+export function setupInteriorMapping(
+	root: Object3D,
+	sun: SunLight | null | undefined,
+	pack: { env: Texture, maps: Map<string, Texture>, imDir?: string },
+): InteriorMappingHandle {
+	const { env, maps } = pack
+	const imDir = pack.imDir ?? IM_DIR.full
 	const meshes = collectGlassMeshes( root ).filter( ( mesh ) => {
 		const name = mesh.name || normalizeMaterials( mesh.material )[ 0 ]?.name || ''
-		return mapUrlForGlass( name, 'day' ) !== null
+		return mapUrlForGlass( name, 'day', imDir ) !== null
 	} )
 	if ( meshes.length === 0 ) {
 		return {
@@ -70,41 +94,20 @@ export async function setupInteriorMapping( root: Object3D, sun?: SunLight | nul
 			setEnabled() {},
 			setPeriod() {},
 			setWindowLights() {},
-			dispose() {},
+			dispose() {
+				disposePack( env, maps )
+			},
 		}
 	}
 
-	const loader = new TextureLoader()
-	const hdrLoader = new HDRLoader()
-	const textures = new Map<string, Texture>()
 	const materials = new Map<string, ReturnType<typeof createInteriorMaterial>>()
-	const envMaps: Texture[] = []
 
-	async function loadEnv( url: string ) {
-		const tex = await hdrLoader.loadAsync( url )
-		tex.mapping = EquirectangularReflectionMapping
-		// tex.wrapS = RepeatWrapping
-		// tex.wrapT = ClampToEdgeWrapping
-		// tex.minFilter = LinearFilter
-		// tex.magFilter = LinearFilter
-		tex.generateMipmaps = false
-		envMaps.push( tex )
-		return tex
-	}
-
-	const env = await loadEnv( ENV_URL )
-
-	async function materialFor( url: string, env: Texture, period: Period ) {
+	function materialFor( url: string, period: Period ) {
 		const key = `${ url }|${ env.uuid }|${ period }`
 		let mat = materials.get( key )
 		if ( mat !== undefined ) return mat
-		const tex = await loader.loadAsync( url )
-		tex.colorSpace = SRGBColorSpace
-		tex.wrapS = ClampToEdgeWrapping
-		tex.wrapT = ClampToEdgeWrapping
-		tex.anisotropy = 8
-		tex.needsUpdate = true
-		textures.set( url, tex )
+		const tex = maps.get( url )
+		if ( tex === undefined ) throw new Error( `[im] 缺图 ${ url }` )
 		mat = createInteriorMaterial( tex, env, period, period === 'day' ? sun : null )
 		materials.set( key, mat )
 		return mat
@@ -114,14 +117,13 @@ export async function setupInteriorMapping( root: Object3D, sun?: SunLight | nul
 	for ( const mesh of meshes ) {
 		const originals = normalizeMaterials( mesh.material ).slice()
 		const glassName = mesh.name || originals[ 0 ]?.name || ''
-		const dayUrl = mapUrlForGlass( glassName, 'day' )
-		const nightUrl = mapUrlForGlass( glassName, 'night' )
+		const dayUrl = mapUrlForGlass( glassName, 'day', imDir )
+		const nightUrl = mapUrlForGlass( glassName, 'night', imDir )
 		if ( dayUrl === null || nightUrl === null ) continue
+		mesh.geometry = mesh.geometry.clone()
 		bakeRoomAttributes( mesh, glassName )
-		const [ dayMat, nightMat ] = await Promise.all( [
-			materialFor( dayUrl, env, 'day' ),
-			materialFor( nightUrl, env, 'night' ),
-		] )
+		const dayMat = materialFor( dayUrl, 'day' )
+		const nightMat = materialFor( nightUrl, 'night' )
 		bindings.push( {
 			mesh,
 			originals,
@@ -162,8 +164,7 @@ export async function setupInteriorMapping( root: Object3D, sun?: SunLight | nul
 			handle.setEnabled( false )
 			for ( const { light } of bindings ) light?.removeFromParent()
 			for ( const mat of materials.values() ) mat.dispose()
-			for ( const tex of textures.values() ) tex.dispose()
-			for ( const tex of envMaps ) tex.dispose()
+			disposePack( env, maps )
 		},
 	}
 	handle.setEnabled( true )

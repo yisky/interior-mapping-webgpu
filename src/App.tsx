@@ -14,16 +14,18 @@ import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js'
 import { SunLight } from 'three/addons/lights/SunLight.js'
 import { SunLightNode } from 'three/addons/lights/SunLightNode.js'
 import { sunShadow } from 'three/addons/lights/SunShadowNode.js'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { materialOpacity, oneMinus } from 'three/tsl'
 import { MeshBasicNodeMaterial, WebGPURenderer } from 'three/webgpu'
 import { setupInteriorMapping } from './interior/setupInteriorMapping'
+import { pickAssetQuality } from './load/quality'
+import { loadSceneAssets } from './load/sceneAssets'
 import { createPostPipeline } from './post/createPostPipeline'
 import { createCourtLights } from './scene/createCourtLights'
 import { createDoorLight } from './scene/createDoorLight'
 import { createDayNightLook } from './scene/dayNight'
 import { markBuildingShadows, setupPhysicalGlass } from './scene/glass'
-import { createFps } from './ui/fps'
+import { bindBoot } from './ui/createLoader'
+import { createFps, type FpsHandle } from './ui/fps'
 import { createToolbar } from './ui/createToolbar'
 
 type StudioScene = Scene & { backgroundNode?: unknown, environment?: unknown }
@@ -44,11 +46,12 @@ export default function App() {
 		let frame = 0
 		let controls: OrbitControls | undefined
 		let cleanupExtras: () => void = () => {}
-		const fps = createFps()
+		let fps: FpsHandle | undefined
 		let togglesDispose = () => {}
+		const bootUi = bindBoot()
 
 		async function boot(): Promise<() => void> {
-			renderer = new WebGPURenderer( { antialias: true } )
+			renderer = new WebGPURenderer( { antialias: false } )
 			SunLight.registerNode( SunLightNode )
 			renderer.lighting = new ClusteredLighting( 32 )
 			await renderer.init()
@@ -56,6 +59,7 @@ export default function App() {
 				renderer.dispose()
 				return () => {}
 			}
+			bootUi.gpuDone()
 
 			renderer.setPixelRatio( Math.min( window.devicePixelRatio, 2 ) )
 			renderer.setSize( hostEl.clientWidth, hostEl.clientHeight )
@@ -73,12 +77,14 @@ export default function App() {
 				120,
 			)
 
-			const gltf = await new GLTFLoader().loadAsync( '/models/studio_3f_im.glb' )
+			const pack = await loadSceneAssets( ( p ) => bootUi.assets( p ), renderer, pickAssetQuality() )
 			if ( disposed ) {
-				gltf.scene.removeFromParent()
+				pack.gltf.scene.removeFromParent()
+				for ( const tex of pack.maps.values() ) tex.dispose()
+				pack.env.dispose()
 				return () => {}
 			}
-			const building = gltf.scene
+			const building = pack.gltf.scene
 			const box = new Box3().setFromObject( building )
 			building.position.y -= box.min.y
 			box.setFromObject( building )
@@ -97,7 +103,7 @@ export default function App() {
 			sun.shadow.normalBias = 0.04
 			scene.add( sun )
 
-			const interior = await setupInteriorMapping( building, sun )
+			const interior = setupInteriorMapping( building, sun, pack )
 			if ( disposed ) {
 				interior.dispose()
 				return () => {}
@@ -114,7 +120,7 @@ export default function App() {
 			controls = new OrbitControls( camera, renderer.domElement )
 			controls.enableDamping = false
 			controls.target.copy( center )
-			//controls.maxPolarAngle = Math.PI * 0.49
+			controls.maxPolarAngle = Math.PI * 0.49
 			controls.minDistance = 8
 			controls.maxDistance = 160
 			controls.update()
@@ -135,22 +141,7 @@ export default function App() {
 			const look = createDayNightLook( { renderer, scene, hemi, sun, ground } )
 			const courtLights = createCourtLights( building )
 			const doorLight = createDoorLight( building )
-			const toolbar = createToolbar( {
-				period: 'day',
-				imEnabled: true,
-				windowLights: true,
-				onPeriod: ( period ) => {
-					look.setPeriod( period )
-					interior.setPeriod( period )
-					courtLights.setPeriod( period )
-					doorLight.setPeriod( period )
-					post.setPeriod( period )
-				},
-				onIm: ( on ) => interior.setEnabled( on ),
-				onWindowLights: ( on ) => interior.setWindowLights( on ),
-			} )
 			togglesDispose = () => {
-				toolbar.dispose()
 				interior.dispose()
 				courtLights.dispose()
 				doorLight.dispose()
@@ -168,6 +159,11 @@ export default function App() {
 			window.addEventListener( 'resize', onResize )
 			onResize()
 
+			bootUi.prepare()
+			post.render()
+			if ( disposed ) return () => {}
+			bootUi.finish()
+
 			let lastMs = performance.now()
 			const tick = () => {
 				frame = requestAnimationFrame( tick )
@@ -178,9 +174,31 @@ export default function App() {
 				renderer!.info.reset()
 				controls?.update()
 				post.render()
-				fps.frame( dt * 1000, renderer!.info.render.drawCalls )
+				fps?.frame( dt * 1000, renderer!.info.render.drawCalls )
 			}
 			tick()
+			await bootUi.dismiss()
+			if ( disposed ) return () => {}
+			fps = createFps()
+			const toolbar = createToolbar( {
+				period: 'day',
+				imEnabled: true,
+				windowLights: true,
+				onPeriod: ( period ) => {
+					look.setPeriod( period )
+					interior.setPeriod( period )
+					courtLights.setPeriod( period )
+					doorLight.setPeriod( period )
+					post.setPeriod( period )
+				},
+				onIm: ( on ) => interior.setEnabled( on ),
+				onWindowLights: ( on ) => interior.setWindowLights( on ),
+			} )
+			const prevDispose = togglesDispose
+			togglesDispose = () => {
+				toolbar.dispose()
+				prevDispose()
+			}
 
 			let cleaned = false
 			const cleanup = () => {
@@ -206,12 +224,12 @@ export default function App() {
 			} )
 			.catch( ( err: unknown ) => {
 				console.error( '[interior-mapping-webgpu] 启动失败', err )
-				hostEl.textContent = 'WebGPU / 场景初始化失败 · 请看控制台。'
+				bootUi.fail( 'WebGPU / 场景初始化失败 · 请看控制台。' )
 			} )
 
 		return () => {
 			disposed = true
-			fps.dispose()
+			fps?.dispose()
 			togglesDispose()
 			cleanupInner()
 			cleanupExtras()
