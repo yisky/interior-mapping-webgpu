@@ -33,5 +33,5 @@ tsc-out.txt
 *.sln
 *.sw?
 
-# root docs (not public/docs)
+# root docs: 公众号文稿与配图，不提交（不是 public/docs）
 /docs
